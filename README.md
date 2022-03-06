@@ -3,7 +3,6 @@
 
 Quickly store arbitrary Python objects in unique files.
 
-* Files are appended to, so no data is lost
 * Optionally generate unique file names based on current time/date, uid, 
 or [ulid](https://github.com/mdomke/python-ulid)
 * Optionally create and use a `~/.quickdump` hidden directory in the home folder
