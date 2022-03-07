@@ -1,3 +1,4 @@
+import atexit
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, TypeAlias
@@ -133,12 +134,19 @@ class QuickDumper(BaseModel):
             The number of (compressed) bytes written to disk.
         """
         total_written = 0
-        with self.output_file.open("a+b") as fd:
+        with (file := self.output_file.open("a+b")) as fd:
             for obj in objs:
                 bin_obj = dill.dumps(obj)
                 for out_chunk in self._zstd_chunker.compress(bin_obj):
                     total_written += fd.write(out_chunk)
-        self._file_unfinished = True
+
+        if not self._file_unfinished:
+            self._file_unfinished = True
+            atexit.register(self.finish)
+
+        obj_count = f"{(l := len(objs))} object{'s' if l > 1 else ''}"
+        logger.debug(f"Dumped {obj_count} to {file} ({total_written} bytes).")
+
         return total_written
 
     def finish(self) -> int:
@@ -161,7 +169,11 @@ class QuickDumper(BaseModel):
         with file.open("a+b") as fd:
             for out_chunk in self._zstd_chunker.finish():
                 written += fd.write(out_chunk)
+
+        logger.debug(f"Finished writing to {file}.")
         self._file_unfinished = False
+        atexit.unregister(self.finish)
+
         return written
 
     def __enter__(self):
