@@ -171,7 +171,7 @@ class QuickDumper(BaseModel):
         self.finish()
 
 
-class DumpLoader(BaseModel):
+class QuickDumpLoader(BaseModel):
     input_file: Path
 
     def iter_objects(self):

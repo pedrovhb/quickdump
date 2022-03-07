@@ -3,7 +3,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from quickdump import QuickDumper, DumpLoader
+from quickdump import QuickDumper, QuickDumpLoader
 
 
 @dataclass
@@ -29,7 +29,7 @@ if __name__ == "__main__":
         dumper.add({"hello!"}, [1, 2, 3])
 
     for file in dumper.produced_files:
-        for loaded_obj in DumpLoader(input_file=file).iter_objects():
+        for loaded_obj in QuickDumpLoader(input_file=file).iter_objects():
             print(loaded_obj)
     # Prints - SomeObj(a=0, b=datetime.datetime(2022, 3, 6, 12, 52, 28, 99256), c=b';?w\xeb\xaa}\xe8\xb9tJ')
     #          ...
