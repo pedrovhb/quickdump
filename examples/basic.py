@@ -3,7 +3,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from quickdump import Dumper, DumpLoader
+from quickdump import QuickDumper, DumpLoader
 
 
 @dataclass
@@ -15,7 +15,7 @@ class SomeObj:
 
 if __name__ == "__main__":
 
-    with Dumper(
+    with QuickDumper(
         file_name="test_dump.qd",
         dump_every=timedelta(seconds=2),
     ) as dumper:

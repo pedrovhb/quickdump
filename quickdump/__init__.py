@@ -34,7 +34,7 @@ class AutoPrefix:
 PrefixT: TypeAlias = tuple[str | Callable[[], str]]
 
 
-class Dumper(BaseModel):
+class QuickDumper(BaseModel):
     file_name: str | Path = "dump.qd"
     output_dir: Path = Path.home() / ".quickdump"
     dump_every: timedelta | None = None
