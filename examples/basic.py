@@ -26,6 +26,8 @@ if __name__ == "__main__":
             print(f"Dumping obj: {obj}")
             dumper.add(obj)
 
+        dumper.add({"hello!"}, [1, 2, 3])
+
     for file in dumper.produced_files:
         for loaded_obj in DumpLoader(input_file=file).iter_objects():
             print(loaded_obj)

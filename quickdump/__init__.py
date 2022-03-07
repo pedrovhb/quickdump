@@ -123,21 +123,21 @@ class Dumper(BaseModel):
         """Set of files produced by the dumper so far."""
         return self._produced_files
 
-    def add(self, obj: Any) -> int:
-        """Add an object to the compressed file dump.
+    def add(self, *objs: Any) -> int:
+        """Add one or more objects to the compressed file dump.
 
         Args:
-            obj: The object to be dumped to disk.
+            objs: The objects to be dumped to disk.
 
         Returns:
             The number of (compressed) bytes written to disk.
-
         """
-        bin_obj = dill.dumps(obj)
         total_written = 0
         with self.output_file.open("a+b") as fd:
-            for out_chunk in self._zstd_chunker.compress(bin_obj):
-                total_written += fd.write(out_chunk)
+            for obj in objs:
+                bin_obj = dill.dumps(obj)
+                for out_chunk in self._zstd_chunker.compress(bin_obj):
+                    total_written += fd.write(out_chunk)
         self._file_unfinished = True
         return total_written
 
