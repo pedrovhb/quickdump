@@ -3,7 +3,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from quickdump import Dumper, DumpLoader, AutoPrefix
+from quickdump import Dumper, DumpLoader
 
 
 @dataclass
