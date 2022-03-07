@@ -25,9 +25,9 @@ class SomeObj:
 if __name__ == "__main__":
 
     with Dumper(
-        file_prefix="some_obj",
-        auto_prefix="ulid",
-        use_quickdump_dir=True,
+            file_name="some_obj",
+            auto_prefix="ulid",
+            use_quickdump_dir=True,
     ) as dumper:
 
         for i in range(100):

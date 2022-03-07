@@ -9,6 +9,8 @@ python = "^3.10"
 zstandard = "^0.17.0"
 dill = "^0.3.4"
 python-ulid = "^1.0.3"
+pydantic = "^1.9.0"
+loguru = "^0.6.0"
 
 [tool.poetry.dev-dependencies]
 

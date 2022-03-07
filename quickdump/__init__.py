@@ -1,81 +1,168 @@
-import atexit
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from random import randint
-from typing import TypeAlias, Literal
+from typing import Any, Callable, TypeAlias
 from uuid import uuid4
 
-import dill
 import zstandard
+from zstandard import ZstdCompressor
+import dill
+from loguru import logger
+from pydantic import BaseModel, PrivateAttr, FilePath, Field
 from ulid import ULID
 
 CHUNK_SIZE = 32768
 
 
-AutoPrefix: TypeAlias = Literal["date", "datetime", "uid", "ulid", "none"]
+class AutoPrefix:
+    @staticmethod
+    def date():
+        return datetime.now().strftime("%Y_%m_%d_")
+
+    @staticmethod
+    def datetime():
+        return datetime.now().strftime("%Y_%m_%d__%H_%M_%S_")
+
+    @staticmethod
+    def uuid():
+        return uuid4().hex
+
+    @staticmethod
+    def ulid():
+        return ULID().hex
 
 
-class Dumper:
-    def __init__(
-        self,
-        output_file: Path | str | None = None,
-        file_prefix: str | None = None,
-        auto_prefix: AutoPrefix = "none",
-        use_quickdump_dir: bool = False,
-    ):
-        self.cctx = zstandard.ZstdCompressor()
-        self.chunker = self.cctx.chunker(chunk_size=CHUNK_SIZE)
+PrefixT: TypeAlias = tuple[str | Callable[[], str]]
 
-        now = datetime.now()
-        match auto_prefix:
-            case "none":
-                auto_prefix = ""
-            case "date":
-                auto_prefix = now.strftime("%Y_%m_%d_")
-            case "datetime":
-                auto_prefix = now.strftime("%Y_%m_%d__%H_%M_%S_")
-            case "uid":
-                auto_prefix = uuid4().hex
-            case "ulid":
-                auto_prefix = ULID().hex
-            case _:
-                raise ValueError
 
-        if isinstance(output_file, str):
-            output_file = Path(output_file)
+class Dumper(BaseModel):
+    file_name: str | Path = "dump.qd"
+    output_dir: Path = Path.home() / ".quickdump"
+    dump_every: timedelta | None = None
 
-        file_prefix = f"{file_prefix}_" if file_prefix else ""
-        auto_prefix = f"{auto_prefix}_" if auto_prefix else ""
-        prefix = file_prefix + auto_prefix
+    file_prefixes: PrefixT = Field(default=(AutoPrefix.date, AutoPrefix.ulid))
+    prefix_separator: str = "__"
 
-        if output_file is None:
-            # Remove trailing slash
-            prefix = prefix[:-1]
-            file = Path(prefix)
+    _crt_file_created_at: datetime = PrivateAttr(default_factory=datetime.now)
+    _crt_file: Path | None = PrivateAttr(default=None)
+    _file_unfinished: bool = PrivateAttr(default=False)
+    _produced_files: set = PrivateAttr(default_factory=set)
+
+    _zstd_chunker: "ZstdCompressionChunker" = PrivateAttr()  # type: ignore
+
+    def get_auto_prefixes(self) -> list[str]:
+        return [p() if callable(p) else p for p in self.file_prefixes]
+
+    def get_output_file(self) -> Path:
+        file_name: str
+        file_dir: Path
+
+        # Get the file name as a string
+        if isinstance(self.file_name, Path):
+            file_name = self.file_name.name
         else:
-            file = output_file.with_name(f"{prefix}{output_file.name}")
+            file_name = self.file_name
 
-        if use_quickdump_dir:
-            qd_dir = Path.home() / ".quickdump"
-            if not qd_dir.exists():
-                qd_dir.mkdir()
-            self.output_file = qd_dir / file.name
-        else:
-            self.output_file = file
+        # Apply auto-prefix to file name, if applicable
+        if auto_prefixes := self.get_auto_prefixes():
+            file_name = self.prefix_separator.join((*auto_prefixes, file_name))
 
-        atexit.register(self.finish)
+        # Get the file directory as a Path
+        if (file_dir := self.output_dir) is None:
+            if isinstance(self.file_name, Path):
+                file_dir = self.file_name.parent
+            else:
+                file_dir = Path(".")
 
-    def add(self, obj):
+        # Build file Path obj
+        file = file_dir / file_name
+
+        # Add new file to the list of files created by this Dumper instance
+        if file not in self._produced_files:
+            self._produced_files.add(file)
+
+        return file
+
+    def _create_zstd_chunker(self):
+        return ZstdCompressor().chunker(chunk_size=CHUNK_SIZE)
+
+    @property
+    def output_file(self) -> Path:
+        """Current output file, as a Path object.
+
+        If the dumper instance hasn't yet written to a file, or if this is the
+        first time we access this property after the previous file has gone
+        stale, a new file path is generated with `get_output_file` and returned.
+
+        Returns:
+            A path object with the current dump output location.
+
+        """
+
+        requires_new_file = self._crt_file is None
+
+        if self.dump_every is not None:
+            rotation_time = self._crt_file_created_at + self.dump_every
+            if datetime.now() > rotation_time:
+                requires_new_file = True
+
+        if requires_new_file:
+
+            if self._crt_file is not None:
+                self._finish_file(self._crt_file)
+
+            self._crt_file_created_at = datetime.now()
+            self._crt_file = self.get_output_file()
+            self._zstd_chunker = self._create_zstd_chunker()
+
+            logger.info(f"Dumping to new file: {self._crt_file}")
+
+        return self._crt_file
+
+    @property
+    def produced_files(self) -> set[Path]:
+        """Set of files produced by the dumper so far."""
+        return self._produced_files
+
+    def add(self, obj: Any) -> int:
+        """Add an object to the compressed file dump.
+
+        Args:
+            obj: The object to be dumped to disk.
+
+        Returns:
+            The number of (compressed) bytes written to disk.
+
+        """
         bin_obj = dill.dumps(obj)
-        for out_chunk in self.chunker.compress(bin_obj):
-            with self.output_file.open("a+b") as fd:
-                fd.write(out_chunk)
+        total_written = 0
+        with self.output_file.open("a+b") as fd:
+            for out_chunk in self._zstd_chunker.compress(bin_obj):
+                total_written += fd.write(out_chunk)
+        self._file_unfinished = True
+        return total_written
 
-    def finish(self):
-        atexit.unregister(self.finish)
-        for out_chunk in self.chunker.finish():
-            with self.output_file.open("a+b") as fd:
-                fd.write(out_chunk)
+    def finish(self) -> int:
+        """Finish compression and write finalizing data to disk.
+
+        This method is scheduled to be run automatically at program exit. It
+        can also be called manually
+
+        Returns:
+            The number of (compressed) bytes written to disk.
+
+        """
+        if not self._file_unfinished:
+            logger.warning(f"Attempted to finish already finished file.")
+            return
+        return self._finish_file(self.output_file)
+
+    def _finish_file(self, file: FilePath) -> int:
+        written = 0
+        with file.open("a+b") as fd:
+            for out_chunk in self._zstd_chunker.finish():
+                written += fd.write(out_chunk)
+        self._file_unfinished = False
+        return written
 
     def __enter__(self):
         return self
@@ -84,9 +171,8 @@ class Dumper:
         self.finish()
 
 
-class DumpLoader:
-    def __init__(self, input_file: Path):
-        self.input_file = input_file
+class DumpLoader(BaseModel):
+    input_file: Path
 
     def iter_objects(self):
         with open(self.input_file, "rb") as fh:
