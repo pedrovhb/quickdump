@@ -133,21 +133,21 @@ class QuickDumper(BaseModel):
         Returns:
             The number of (compressed) bytes written to disk.
         """
-        total_written = 0
+        written = 0
         with (file := self.output_file.open("a+b")) as fd:
             for obj in objs:
                 bin_obj = dill.dumps(obj)
                 for out_chunk in self._zstd_chunker.compress(bin_obj):
-                    total_written += fd.write(out_chunk)
+                    written += fd.write(out_chunk)
 
         if not self._file_unfinished:
             self._file_unfinished = True
             atexit.register(self.finish)
 
         obj_count = f"{(l := len(objs))} object{'s' if l > 1 else ''}"
-        logger.debug(f"Dumped {obj_count} to {file} ({total_written} bytes).")
+        logger.info(f"Dumped {obj_count} to {file} ({written} bytes).")
 
-        return total_written
+        return written
 
     def finish(self) -> int:
         """Finish compression and write finalizing data to disk.
@@ -170,7 +170,7 @@ class QuickDumper(BaseModel):
             for out_chunk in self._zstd_chunker.finish():
                 written += fd.write(out_chunk)
 
-        logger.debug(f"Finished writing to {file}.")
+        logger.info(f"Finished writing to {file}.")
         self._file_unfinished = False
         atexit.unregister(self.finish)
 
