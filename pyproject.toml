@@ -1,7 +1,12 @@
 [tool.poetry]
 name = "quickdump"
 version = "0.1.0"
-description = ""
+description = "Quickly store arbitrary Python objects in unique files."
+keywords = ["quickdump", "dump", "serialize", "store"]
+readme = "README.md"
+license = "MIT"
+homepage = "https://github.com/pedrovhb/quickdump"
+repository = "https://github.com/pedrovhb/quickdump"
 authors = ["Pedro Batista <pedrovhb@gmail.com>"]
 
 [tool.poetry.dependencies]
