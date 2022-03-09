@@ -46,7 +46,7 @@ class QuickDumper(BaseModel):
     _crt_file_created_at: datetime = PrivateAttr(default_factory=datetime.now)
     _crt_file: Path | None = PrivateAttr(default=None)
     _file_unfinished: bool = PrivateAttr(default=False)
-    _produced_files: set = PrivateAttr(default_factory=set)
+    _produced_files: list = PrivateAttr(default_factory=list)
 
     _zstd_chunker: "ZstdCompressionChunker" = PrivateAttr()  # type: ignore
 
@@ -78,8 +78,9 @@ class QuickDumper(BaseModel):
         file = file_dir / file_name
 
         # Add new file to the list of files created by this Dumper instance
+        # todo this is O(n), could be O(1)
         if file not in self._produced_files:
-            self._produced_files.add(file)
+            self._produced_files.append(file)
 
         return file
 
@@ -113,6 +114,7 @@ class QuickDumper(BaseModel):
 
             self._crt_file_created_at = datetime.now()
             self._crt_file = self.get_output_file()
+            self._crt_file.parent.mkdir(exist_ok=True)
             self._zstd_chunker = self._create_zstd_chunker()
 
             logger.info(f"Dumping to new file: {self._crt_file}")
@@ -120,7 +122,7 @@ class QuickDumper(BaseModel):
         return self._crt_file
 
     @property
-    def produced_files(self) -> set[Path]:
+    def produced_files(self) -> list[Path]:
         """Set of files produced by the dumper so far."""
         return self._produced_files
 
@@ -183,15 +185,13 @@ class QuickDumper(BaseModel):
         self.finish()
 
 
-class QuickDumpLoader(BaseModel):
-    input_file: Path
-
-    def iter_objects(self):
-        with open(self.input_file, "rb") as fh:
+def iter_dump_objects(*file_paths: Path):
+    for file in file_paths:
+        with file.open("rb") as fh:
             dctx = zstandard.ZstdDecompressor()
             with dctx.stream_reader(fh) as reader:
                 while True:
                     try:
                         yield dill.load(reader)
                     except EOFError:
-                        return
+                        break

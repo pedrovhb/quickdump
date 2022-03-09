@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "quickdump"
-version = "0.1.1"
+version = "0.2.0"
 description = "Quickly store arbitrary Python objects in unique files."
 keywords = ["quickdump", "dump", "serialize", "store"]
 readme = "README.md"
@@ -11,7 +11,7 @@ authors = ["Pedro Batista <pedrovhb@gmail.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.10"
-zstandard = "^0.17.0"
+zstandard = "^0.16"
 dill = "^0.3.4"
 python-ulid = "^1.0.3"
 pydantic = "^1.9.0"
