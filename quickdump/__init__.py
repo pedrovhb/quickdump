@@ -34,6 +34,17 @@ class AutoPrefix:
 
 PrefixT: TypeAlias = tuple[str | Callable[[], str]]
 
+# files -
+#   - label__dt.bin - recent buffer
+#   - label__dt.qd  - list of QuickDumpBlock objects containing metadata and compressed blob of dilled obj
+# On dumping, recent buffer file is immediately atomically written to. After the number of dilled objs passes some
+# possibly dynamic threshold, the current buffer is compressed and passed to a new QuickDumpBlock created with the
+# relevant metadata. Quickdump attempts to compress the current buffer on atexit.
+# Use a Flyweight/Singleton pattern wherein a QuickDump instance of the same label returns the same obj (and thus
+# buffer). On startup of a given label, check for loose recent buffer files of that label and load that.
+# todo - think about data safety in multiple processes accessing the same file.
+# todo - consider asyncio interface
+# todo - remove most dependencies
 
 class QuickDumper(BaseModel):
     file_name: str | Path = "dump.qd"
