@@ -1,10 +1,19 @@
 import gzip
-import io
 from datetime import datetime
 from functools import cached_property
 from io import BytesIO
 from pathlib import Path
-from typing import Any, ClassVar, Dict, Optional, Tuple, TypeVar, Type, BinaryIO, Generator
+from typing import (
+    Any,
+    BinaryIO,
+    ClassVar,
+    Dict,
+    Generator,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+)
 
 import dill
 from loguru import logger
@@ -13,8 +22,9 @@ from quickdump import Suffix
 from quickdump.const import (
     COMPRESSED_DUMP_FILE_EXTENSION,
     DEFAULT_DUMP_DIRNAME,
+    DEFAULT_DUMP_LABEL,
     DUMP_FILE_EXTENSION,
-    ONE_MEGABYTE, DEFAULT_DUMP_LABEL,
+    ONE_MEGABYTE,
 )
 
 
@@ -23,15 +33,15 @@ def _default_path() -> Path:
 
 
 T = TypeVar("T")
+
+
 class QuickDumper:
     label: str
     suffix: str
     output_dir: Path
     max_uncompressed_size: int
 
-    __instances: ClassVar[
-        Dict[Tuple[str, str], "QuickDumper"]
-    ] = {}
+    __instances: ClassVar[Dict[Tuple[str, str], "QuickDumper"]] = {}
 
     def __init__(
         self,
@@ -60,8 +70,9 @@ class QuickDumper:
         output_dir: Optional[Path] = None,
         max_uncompressed_size: int = 10 * ONE_MEGABYTE,
     ) -> "QuickDumper":
-        if (label, suffix) in cls.__instances:
+        if (label, suffix) not in cls.__instances:
             obj = super().__new__(cls)
+            cls.__init__(obj, label, suffix, output_dir, max_uncompressed_size)
             cls.__instances[(label, suffix)] = obj
         return cls.__instances[(label, suffix)]
 
@@ -76,13 +87,13 @@ class QuickDumper:
 
     @cached_property
     def uncompressed_file(self) -> Path:
-        fname = f"{self.file_basename}.{DUMP_FILE_EXTENSION}"
-        return Path(self.output_dir) / fname
+        filename = f"{self.file_basename}.{DUMP_FILE_EXTENSION}"
+        return Path(self.output_dir) / filename
 
     @cached_property
     def compressed_file(self) -> Path:
-        fname = f"{self.file_basename}.{COMPRESSED_DUMP_FILE_EXTENSION}"
-        return Path(self.output_dir) / fname
+        filename = f"{self.file_basename}.{COMPRESSED_DUMP_FILE_EXTENSION}"
+        return Path(self.output_dir) / filename
 
     def dump(self, *objs: Any, skip_compression_check: bool = False) -> None:
 
@@ -119,27 +130,10 @@ class QuickDumper:
             except EOFError:
                 break
 
-    def split_suffix(self, file: Path) -> tuple[str, str]:
-        spl = file.with_suffix("").name.split("___")
-        if len(spl) == 1:
-            # No suffix
-            label, suffix = spl[0], ""
-            logger.info(f"Iterating objects from label {label}.")
-        elif len(spl) == 2:
-            label, suffix = spl
-            logger.info(f"Iterating objects from label {label}, file suffix {suffix}")
-        else:
-            label, suffix = "___".join(spl[:-1]), spl[-1]
-            logger.warning(f"Couldn't detect label/suffix. Assuming label {label}")
-        return label, suffix
-
     def iter_dumped(self) -> Generator[Any, None, None]:
         for file in self.output_dir.iterdir():
             if not file.is_file():
                 continue
-
-            # Just logs for debugging purposes
-            self.split_suffix(file)
 
             if file.suffix == f".{DUMP_FILE_EXTENSION}":
                 with file.open("rb") as fd:
@@ -169,8 +163,8 @@ if __name__ == "__main__":
     print(qd is qd3)
     print(qd is qd2)
 
-    for obj in qd.iter_dumped():
-        print(obj)
+    for dumped_obj in qd.iter_dumped():
+        print(dumped_obj)
 
-    for obj in qd2.iter_dumped():
-        print(obj)
+    for dumped_obj in qd2.iter_dumped():
+        print(dumped_obj)

@@ -1,9 +1,8 @@
 import random
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 
-import quickdump as qd
 from quickdump import QuickDumper, Suffix
 
 

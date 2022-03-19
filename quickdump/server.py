@@ -34,13 +34,19 @@ async def do_dump(request: Request) -> Response:
     return JSONResponse({"ok": "true"})
 
 
-if __name__ == "__main__":
-    app = Starlette(
-        debug=True,
-        routes=[
-            Route("/{label}", do_dump),
-            Route("/", do_dump),
-        ],
-    )
-    default_suffix = Suffix.Minute
+default_suffix = Suffix.Minute
+app = Starlette(
+    debug=True,
+    routes=[
+        Route("/{label}", do_dump),
+        Route("/", do_dump),
+    ],
+)
+
+
+def main() -> None:
     uvicorn.run(app, host="0.0.0.0", port=4410)
+
+
+if __name__ == "__main__":
+    main()
