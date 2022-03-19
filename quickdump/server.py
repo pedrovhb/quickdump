@@ -20,9 +20,9 @@ class RequestDump(NamedTuple):
 
 async def do_dump(request: Request) -> Response:
     if label := request.path_params.get("label"):
-        dumper = QuickDumper(label, suffix=default_suffix)
+        dumper = QuickDumper(label, suffix=DEFAULT_SUFFIX)
     else:
-        dumper = QuickDumper(DEFAULT_SERVER_DUMP_LABEL, suffix=default_suffix)
+        dumper = QuickDumper(DEFAULT_SERVER_DUMP_LABEL, suffix=DEFAULT_SUFFIX)
 
     dump = RequestDump(
         url=request.url,
@@ -34,7 +34,7 @@ async def do_dump(request: Request) -> Response:
     return JSONResponse({"ok": "true"})
 
 
-default_suffix = Suffix.Minute
+DEFAULT_SUFFIX = Suffix.Minute
 app = Starlette(
     debug=True,
     routes=[

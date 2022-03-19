@@ -18,13 +18,13 @@ from typing import (
 import dill
 from loguru import logger
 
-from quickdump import Suffix
-from quickdump.const import (
+from .const import (
     COMPRESSED_DUMP_FILE_EXTENSION,
     DEFAULT_DUMP_DIRNAME,
     DEFAULT_DUMP_LABEL,
     DUMP_FILE_EXTENSION,
     ONE_MEGABYTE,
+    Suffix,
 )
 
 
@@ -32,7 +32,15 @@ def _default_path() -> Path:
     return Path.home() / DEFAULT_DUMP_DIRNAME
 
 
-T = TypeVar("T")
+T: TypeVar = TypeVar("T")
+
+
+def _dill_load(io_interface: BinaryIO) -> Generator[Any, None, None]:
+    while True:
+        try:
+            yield dill.load(io_interface)
+        except EOFError:
+            break
 
 
 class QuickDumper:
@@ -97,9 +105,9 @@ class QuickDumper:
 
     def dump(self, *objs: Any, skip_compression_check: bool = False) -> None:
 
-        with self.uncompressed_file.open("ab") as fd:
+        with self.uncompressed_file.open("ab") as fd_uncompressed:
             for obj in objs:
-                dill.dump(obj, fd)
+                dill.dump(obj, fd_uncompressed)
 
         if not skip_compression_check:
             if self._requires_compression():
@@ -109,8 +117,8 @@ class QuickDumper:
         logger.info(f"Compressing QuickDump data for label {self.label}")
 
         # Open uncompressed data, and compress it into a binary blob
-        with self.uncompressed_file.open("rb") as fd:
-            blob = gzip.compress(fd.read())
+        with self.uncompressed_file.open("rb") as fd_uncompressed:
+            blob = gzip.compress(fd_uncompressed.read())
 
         # Write compressed blob
         with self.compressed_file.open("ab") as fd_compressed:
@@ -123,26 +131,19 @@ class QuickDumper:
         stat = self.uncompressed_file.stat()
         return stat.st_size >= self.max_uncompressed_size
 
-    def _dill_load(self, fd: BinaryIO) -> Generator[Any, None, None]:
-        while True:
-            try:
-                yield dill.load(fd)
-            except EOFError:
-                break
-
     def iter_dumped(self) -> Generator[Any, None, None]:
         for file in self.output_dir.iterdir():
             if not file.is_file():
                 continue
 
             if file.suffix == f".{DUMP_FILE_EXTENSION}":
-                with file.open("rb") as fd:
-                    yield from self._dill_load(fd)
+                with file.open("rb") as fd_uncompressed:
+                    yield from _dill_load(fd_uncompressed)
 
             elif file.suffix == f".{COMPRESSED_DUMP_FILE_EXTENSION}":
-                with file.open("rb") as fd:
-                    blob = gzip.decompress(dill.load(fd))
-                    yield from self._dill_load(BytesIO(blob))
+                with file.open("rb") as fd_compressed:
+                    blob = gzip.decompress(dill.load(fd_compressed))
+                    yield from _dill_load(BytesIO(blob))
 
             else:
                 logger.warning(f"Unrecognized file format {file.suffix}")
