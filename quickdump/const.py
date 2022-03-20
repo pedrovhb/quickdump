@@ -1,8 +1,7 @@
 DEFAULT_DUMP_LABEL = "quickdump"
 DEFAULT_SERVER_DUMP_LABEL = "server_quickdump"
-DEFAULT_DUMP_DIRNAME = ".quickdump"
+DEFAULT_DUMP_DIRNAME: str = ".quickdump"
 
-ONE_MEGABYTE = 10**6  # in bytes
 
 DUMP_FILE_EXTENSION = "qd"
 COMPRESSED_DUMP_FILE_EXTENSION = "cqd"
