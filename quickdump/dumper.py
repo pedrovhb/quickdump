@@ -32,7 +32,7 @@ def _default_path() -> Path:
     return Path.home() / DEFAULT_DUMP_DIRNAME
 
 
-T: TypeVar = TypeVar("T")
+T = TypeVar("T")
 
 
 def _dill_load(io_interface: BinaryIO) -> Generator[Any, None, None]:
