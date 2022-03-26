@@ -1,134 +1,149 @@
-import gzip
+import atexit
 import time
-import zlib
-from datetime import datetime
 from functools import cached_property
-from io import BufferedIOBase, BytesIO
 from pathlib import Path
 from typing import (
     Any,
-    BinaryIO,
-    ClassVar,
     Dict,
-    Generator,
     Optional,
-    Tuple,
     Type,
-    TypeVar,
+    Union,
+    Generator,
+    TypeAlias,
 )
 
-import dill
-import pyzstd
-from loguru import logger
+import cloudpickle
+import structlog.stdlib
+from lz4.frame import LZ4FrameFile
 
 from quickdump.const import (
-    COMPRESSED_DUMP_FILE_EXTENSION,
-    DEFAULT_DUMP_DIRNAME,
-    DEFAULT_DUMP_LABEL,
-    Suffix,
+    DUMP_FILE_EXTENSION,
+    _default_dump_dir,
+    _default_label,
 )
 
-
-def _default_path() -> Path:
-    return Path(Path.home() / DEFAULT_DUMP_DIRNAME)
+DumpGenerator: TypeAlias = Generator[Any, None, None]
 
 
-T = TypeVar("T")
+def _yield_objs(file: Path) -> DumpGenerator:
+    with LZ4FrameFile(file, mode="rb") as compressed_fd:
+        while True:
+            try:
+                yield from cloudpickle.load(compressed_fd)
+            except EOFError:
+                break
 
 
-def _dill_load(stream: BufferedIOBase) -> Generator[Any, None, None]:
-    while True:
-        try:
-            yield from dill.load(stream)
-        except EOFError:
-            break
+def iter_dumps(
+    *labels: str,
+    dump_location: Optional[Union[Path, str]] = None,
+) -> DumpGenerator:
+    selected_labels = labels or [_default_label]
+    dump_location = Path(dump_location or _default_dump_dir)
+
+    for label in selected_labels:
+        if dump_location.is_file():
+            file_path = dump_location
+        else:
+            filename = Path(label).with_suffix(DUMP_FILE_EXTENSION)
+            file_path = dump_location / filename
+
+        if QuickDumper.check_requires_flush(label):
+            QuickDumper(label).flush()
+
+        yield from _yield_objs(file_path)
+
+
+def iter_all_dumps(dump_dir: Optional[Path] = None) -> DumpGenerator:
+    dump_dir = dump_dir or Path(_default_dump_dir)
+
+    for file in dump_dir.iterdir():
+        if not file.is_file():
+            continue
+        if file.suffix == DUMP_FILE_EXTENSION:
+            yield from _yield_objs(file)
 
 
 class QuickDumper:
     label: str
-    suffix: str
     output_dir: Path
+    _frame_file: LZ4FrameFile
+    _requires_flush: bool
 
-    __instances: ClassVar[Dict[Tuple[str, str], "QuickDumper"]] = {}
-
-    def __init__(
-        self,
-        label: str = DEFAULT_DUMP_LABEL,
-        suffix: str = Suffix.NoSuffix,
-        output_dir: Optional[Path] = None,
-    ):
-        if output_dir is None:
-            output_dir = _default_path()
-
-        self.label = label
-        self.suffix = str(suffix)
-        self.output_dir = output_dir
-
-        if not self.output_dir.exists():
-            self.output_dir.mkdir(parents=True, exist_ok=True)
-        if not self.output_dir.exists() or not self.output_dir.is_dir():
-            raise FileNotFoundError
-
-        self._ctx_manager_open = False
-        self._buffer = []
-
-    def __enter__(self) -> "QuickDumper":
-        self._ctx_manager_open = True
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        self._ctx_manager_open = False
-        self.dump(flush=True)
+    _instances: Dict[str, "QuickDumper"] = {}
 
     def __new__(
         cls: Type["QuickDumper"],
-        label: str = DEFAULT_DUMP_LABEL,
-        suffix: str = Suffix.NoSuffix,
+        label: Optional[str] = None,
         output_dir: Optional[Path] = None,
     ) -> "QuickDumper":
 
-        # Apply flyweight pattern (todo - double check)
-        if (label, suffix) not in cls.__instances:
-            obj = super().__new__(cls)
-            cls.__init__(obj, label, suffix, output_dir)
-            cls.__instances[(label, suffix)] = obj
-        return cls.__instances[(label, suffix)]
+        if label is None:
+            label = _default_label
 
-    def render_suffix(self) -> str:
-        return datetime.now().strftime(self.suffix)
+        # Apply flyweight pattern
+        self = cls._instances.get(label)
+        if self is None:
+            self = object().__new__(cls)
+            cls.initialize(self, label=label, output_dir=output_dir)
+            cls._instances[label] = self
+
+        return self
+
+    @classmethod
+    def initialize(
+        cls,
+        self,
+        label: str,
+        output_dir: Optional[Path] = None,
+    ) -> None:
+
+        self.label = label
+        self.logger.info(f"Initializing QuickDumper for label {label}")
+
+        out_dir = output_dir if output_dir is not None else _default_dump_dir
+        self.output_dir = Path(out_dir)
+
+        if not self.output_dir.exists():
+            self.output_dir.mkdir(parents=True)
+
+        if not self.output_dir.exists() or not self.output_dir.is_dir():
+            raise FileNotFoundError
+
+        self._frame_file = LZ4FrameFile(self.dump_file_path, mode="ab")
+        self._requires_flush = False
+        atexit.register(self.flush)
+
+    @property
+    def logger(self) -> structlog.stdlib.BoundLogger:
+        logger = structlog.stdlib.get_logger(label=self.label)
+        return logger
+
+    @classmethod
+    def check_requires_flush(cls, label: str) -> bool:
+        if label in cls._instances:
+            return cls._instances[label]._requires_flush
+        return False
 
     @cached_property
-    def file_basename(self) -> str:
-        if suffix := self.render_suffix():
-            return f"{self.label}___{suffix}"
-        return self.label
+    def dump_file_path(self) -> Path:
+        filename = Path(self.label).with_suffix(DUMP_FILE_EXTENSION)
+        return self.output_dir / filename
 
-    @cached_property
-    def compressed_file(self) -> Path:
-        filename = f"{self.file_basename}.{COMPRESSED_DUMP_FILE_EXTENSION}"
-        return Path(self.output_dir) / filename
+    def flush(self) -> None:
+        if self._requires_flush:
+            self._frame_file.flush()
+            self._requires_flush = False
 
-    def dump(self, *objs: Any, flush: Optional[bool] = None) -> None:
-        if (self._ctx_manager_open and flush is None) or flush is False:
-            self._buffer.extend(objs)
-        else:
-            with pyzstd.ZstdFile(self.compressed_file, mode="ab") as comp_fd:
-                if self._buffer:
-                    dill.dump(self._buffer, comp_fd)
-                    self._buffer = []
-                if objs:
-                    dill.dump(objs, comp_fd)
+    def iter_dumps(self) -> DumpGenerator:
+        yield from iter_dumps(self.label, dump_location=self.dump_file_path)
 
-    def iter_dumped(self) -> Generator[Any, None, None]:
-        for file in self.output_dir.iterdir():
-            if not file.is_file():
-                continue
+    def dump(self, *objs: Any, force_flush: bool = False) -> None:
+        cloudpickle.dump(objs, self._frame_file)
+        self._requires_flush = True
 
-            if file.suffix == f".{COMPRESSED_DUMP_FILE_EXTENSION}":
-                yield from _dill_load(pyzstd.ZstdFile(file))
-
-            else:
-                logger.warning(f"Unrecognized file format {file.suffix}")
+        if force_flush:
+            self.flush()
 
     __call__ = dump
 
@@ -137,47 +152,33 @@ if __name__ == "__main__":
 
     qd = QuickDumper("some_label")
     qd2 = QuickDumper("some_other_label")
-    qd3 = QuickDumper("some_third_label")
-    qd4 = QuickDumper("some_fourth_label")
 
-    test_size = 10000
+    qd3 = QuickDumper("some_label")
+
+    test_size = 10
+
+    t0 = time.perf_counter()
+    qd(*[("one", "two", i) for i in range(test_size)])
+    t_one_dump = time.perf_counter() - t0
 
     t0 = time.perf_counter()
     for i in range(test_size):
-        qd(("one", "two", i))
-    t_non_ctx_manager = time.perf_counter() - t0
-
-    t0 = time.perf_counter()
-    with qd2:
-        for i in range(test_size):
-            qd2(("one", "two", i))
-    t_ctx_manager = time.perf_counter() - t0
-
-    t0 = time.perf_counter()
-    qd3(*(("one", "two", i) for i in range(test_size)))
-    t_starred = time.perf_counter() - t0
-
-    t0 = time.perf_counter()
-    for i in range(test_size):
-        qd4(("one", "two", i), flush=False)
-    qd4(flush=True)
-    t_flush_once = time.perf_counter() - t0
+        qd2(("one", "two", i * 2))
+    t_multiple_dumps = time.perf_counter() - t0
 
     print("===================")
     print(f"Some label objs:")
-    for dumped_obj in qd.iter_dumped():
+    for dumped_obj in qd.iter_dumps():
         print(dumped_obj)
 
     print("===================")
     print(f"Some other label objs:")
-    for dumped_obj in qd2.iter_dumped():
+    for dumped_obj in qd2.iter_dumps():
         print(dumped_obj)
 
     print(
         f"""
-                {t_starred=}
-            {t_ctx_manager=}
-        {t_non_ctx_manager=}
-             {t_flush_once=}
+              t_one_dump: {t_one_dump}
+        t_multiple_dumps: {t_multiple_dumps}
         """
     )

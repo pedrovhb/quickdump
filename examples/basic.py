@@ -11,6 +11,12 @@ class SomeObj:
     a: int
     b: datetime
     c: str
+    d: float
+    dd: float
+
+
+class Anotherobj(SomeObj):
+    pass
 
 
 if __name__ == "__main__":

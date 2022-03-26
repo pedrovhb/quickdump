@@ -1,45 +1,58 @@
-from typing import NamedTuple
+import json
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any
 
 import uvicorn
+from multidict import CIMultiDict
 from starlette.applications import Starlette
-from starlette.datastructures import URL, Headers
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import Response
 from starlette.routing import Route
+from starlette.endpoints import HTTPEndpoint
 
-from quickdump import QuickDumper, Suffix
-from quickdump.const import DEFAULT_SERVER_DUMP_LABEL
+from quickdump import QuickDumper
+from quickdump.const import _default_label
 
 
-class RequestDump(NamedTuple):
-    url: URL
-    method: str
-    headers: Headers
+@dataclass
+class RequestDump:
+    headers: CIMultiDict[str]
+    url: str
     body: bytes
+    dumped_at: datetime = field(default_factory=datetime.now)
+
+    @property
+    def json(self) -> Any:
+        return json.loads(self.body)
 
 
-async def do_dump(request: Request) -> Response:
-    if label := request.path_params.get("label"):
-        dumper = QuickDumper(label, suffix=DEFAULT_SUFFIX)
-    else:
-        dumper = QuickDumper(DEFAULT_SERVER_DUMP_LABEL, suffix=DEFAULT_SUFFIX)
+class DumpApp(HTTPEndpoint):
+    async def dispatch(self) -> None:
+        request = Request(self.scope, receive=self.receive)
 
-    dump = RequestDump(
-        url=request.url,
-        method=request.method,
-        headers=request.headers,
-        body=await request.body(),
-    )
-    dumper.dump(dump)
-    return JSONResponse({"ok": "true"})
+        label = request.path_params.get("label") or _default_label
+        print(request.path_params)
+        print(request.url)
+
+        dumper = QuickDumper(label)
+
+        body = await request.body()
+        headers = CIMultiDict(request.headers)
+        url = request.url
+
+        req_dump = RequestDump(headers=headers, url=str(url), body=body)
+        dumper.dump(req_dump)
+
+        response = Response(status_code=201)
+        await response(self.scope, self.receive, self.send)
 
 
-DEFAULT_SUFFIX = Suffix.Minute
 app = Starlette(
     debug=True,
     routes=[
-        Route("/{label}", do_dump),
-        Route("/", do_dump),
+        Route("/{full_path:path}", DumpApp),
+        # Route("/", DumpApp),
     ],
 )
 

@@ -1,46 +1,40 @@
 # quickdump
 
-
 Quickly store arbitrary Python objects in unique files.
 
-* Optionally generate unique file names based on current time/date, uid, 
-or [ulid](https://github.com/mdomke/python-ulid)
-* Optionally create and use a `~/.quickdump` hidden directory in the home folder
+*Library status - this is an experimental work in progress that hasn't been
+battle-tested at all. The API may change often between versions, and you may
+lose all your data.*
+
+---
+
+- If an object from a library is dumped, the Python interpreter (or virtual
+  environment) must have the library installed.
 
 ```python
-import random
-import time
-from dataclasses import dataclass
-from datetime import datetime, timedelta
-
-from quickdump import QuickDumper, QuickDumpLoader
+from datetime import datetime
+from quickdump import QuickDumper
 
 
-@dataclass
-class SomeObj:
-    a: int
-    b: datetime
-    c: bytes
+class MyObj:
+
+    def __init__(self, first, second):
+        self.first = first
+        self.second = second
+
+    @property
+    def doubled_second(self):
+        return self.second * 2
 
 
 if __name__ == "__main__":
-
-    with QuickDumper(
-            file_name="test_dump.qd",
-            dump_every=timedelta(seconds=2),
-    ) as dumper:
-
+    with QuickDumper("some_obj") as qd:
         for i in range(100):
-            time.sleep(0.1)
-            obj = SomeObj(i, datetime.now(), random.randbytes(10))
-            print(f"Dumping obj: {obj}")
-            dumper.add(obj)
-
-    for file in dumper.produced_files:
-        for loaded_obj in QuickDumpLoader(input_file=file).iter_objects():
-            print(loaded_obj)
-    # Prints - SomeObj(a=0, b=datetime.datetime(2022, 3, 6, 12, 52, 28, 99256), c=b';?w\xeb\xaa}\xe8\xb9tJ')
-    #          ...
-    #          SomeObj(a=99, b=datetime.datetime(2022, 3, 6, 12, 52, 28, 175175), c=b'%\x93\xdc\x93\x9e\x08@\xed\xe1\n')
-    # Saves the objects in one file in each run on the ~/.quickdump dir.
+            obj = MyObj(first=datetime.now(), second=i)
+            qd(obj)
+    
+    ... 
+    
+    for obj in QuickDumper("some_obj").iter_dumped():
+        print(obj, obj.doubled_second)
 ```

@@ -1,16 +1,25 @@
-DEFAULT_DUMP_LABEL = "quickdump"
-DEFAULT_SERVER_DUMP_LABEL = "server_quickdump"
-DEFAULT_DUMP_DIRNAME: str = ".quickdump"
+from pathlib import Path
+from typing import Union, Optional
+
+from starlette.middleware.cors import ALL_METHODS as STARLETTE_METHODS
+
+DUMP_FILE_EXTENSION = ".qd"
+
+# Starlette Route is typed as taking a list[str] instead of tuple[str, ...]
+ALL_METHODS = list(STARLETTE_METHODS)
+
+_default_dump_dir: Path = Path.home() / ".quickdump"
+_default_label = "unlabeled_dump"
 
 
-DUMP_FILE_EXTENSION = "qd"
-COMPRESSED_DUMP_FILE_EXTENSION = "cqd"
+def configure(
+    default_path: Optional[Union[Path, str]] = None,
+    default_label: Optional[str] = None,
+) -> None:
+    if default_path is not None:
+        global _default_dump_dir
+        _default_dump_dir = Path(default_path)
 
-
-class Suffix:
-    Year = Y = y = "%Y"
-    Month = m = "%Y_%m"
-    Day = d = "%Y_%m_%d"
-    Hour = H = "%Y_%m_%d__%H"
-    Minute = M = "%Y_%m_%d__%H_%M"
-    NoSuffix = N = n = ""
+    if default_label is not None:
+        global _default_label
+        _default_label = default_label
