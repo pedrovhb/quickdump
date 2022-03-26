@@ -8,33 +8,35 @@ lose all your data.*
 
 ---
 
-- If an object from a library is dumped, the Python interpreter (or virtual
-  environment) must have the library installed.
+### Features
 
+- Store arbitrary objects with `cloudpickle` locally
+- No config or boilerplate required
+- Dump from TCP server
+- Dump from HTTP server
+
+### Notes
+(todo - rewrite this in a coherent manner)
+
+  - If an object from a library is dumped, the Python interpreter (or virtual
+    environment) must have the library installed.
+  - Currently, compression is applied per call to `dump`. This isn't very efficient.
+  - Labels are slugified to prevent errors from invalid characters in the filename.
+
+---
 ```python
-from datetime import datetime
-from quickdump import QuickDumper
-
-
-class MyObj:
-
-    def __init__(self, first, second):
-        self.first = first
-        self.second = second
-
-    @property
-    def doubled_second(self):
-        return self.second * 2
-
+from quickdump import QuickDumper, iter_dumps
 
 if __name__ == "__main__":
-    with QuickDumper("some_obj") as qd:
-        for i in range(100):
-            obj = MyObj(first=datetime.now(), second=i)
-            qd(obj)
+    qd = QuickDumper("some_label")
+    test_size = 1000
+    qd(*[("one", "two", i) for i in range(test_size)])
+
+    # In a separate run...
     
-    ... 
-    
-    for obj in QuickDumper("some_obj").iter_dumped():
-        print(obj, obj.doubled_second)
+    for obj in iter_dumps("some_label"):
+        print(obj)
+    # or:
+    for obj in qd.iter_dumps():
+        print(obj)
 ```
