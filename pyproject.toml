@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "quickdump"
-version = "0.3.0"
+version = "0.4.0"
 description = "Quickly store arbitrary Python objects in unique files."
 keywords = ["quickdump", "dump", "serialize", "store"]
 readme = "README.md"
@@ -11,16 +11,14 @@ authors = ["Pedro Batista <pedrovhb@gmail.com>"]
 
 [tool.poetry.dependencies]
 python = ">=3.7,<4.0"
-dill = "^0.3.4"
-loguru = "^0.6.0"
 
-starlette = { version = "^0.19.0", extras = ["server"] }
-uvicorn = { version = "^0.17.6", extras = ["server"] }
-pyzstd = "^0.15.2"
 cloudpickle = "^2.0.0"
 lz4 = "^4.0.0"
 multidict = "^6.0.2"
 structlog = "^21.5.0"
+
+starlette = { version = "^0.19.0", extras = ["server"] }
+uvicorn = { version = "^0.17.6", extras = ["server"] }
 
 [tool.poetry.dev-dependencies]
 black = "^22.1.0"
@@ -29,7 +27,8 @@ mypy = "^0.942"
 pylint = "^2.12.2"
 
 [tool.poetry.scripts]
-server = "quickdump.server:main"
+quickdump_http = "quickdump.server_http:main"  # todo remove hardcoded paths
+quickdump_tcp = "quickdump.server_tcp:main"  # todo remove hardcoded paths
 
 # todo - cli interface, e.g. -
 #  cat file | jq .key | qd -l some_label -s day
