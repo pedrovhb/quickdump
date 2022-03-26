@@ -1,26 +1,16 @@
 import atexit
 import time
 from functools import cached_property
+from itertools import chain
 from pathlib import Path
-from typing import (
-    Any,
-    Dict,
-    Optional,
-    Type,
-    Union,
-    Generator,
-    TypeAlias,
-)
+from typing import Any, Dict, Generator, Optional, Type, TypeAlias, Union
 
 import cloudpickle
 import structlog.stdlib
 from lz4.frame import LZ4FrameFile
 
-from quickdump.const import (
-    DUMP_FILE_EXTENSION,
-    _default_dump_dir,
-    _default_label,
-)
+from quickdump.const import DUMP_FILE_EXTENSION, _default_dump_dir, _default_label
+from quickdump.utils import slugify
 
 DumpGenerator: TypeAlias = Generator[Any, None, None]
 
@@ -80,6 +70,7 @@ class QuickDumper:
 
         if label is None:
             label = _default_label
+        label = slugify(label)
 
         # Apply flyweight pattern
         self = cls._instances.get(label)
@@ -132,7 +123,16 @@ class QuickDumper:
 
     def flush(self) -> None:
         if self._requires_flush:
-            self._frame_file.flush()
+
+            # region revert_me
+            # todo - revert once patch to lz4 fixing flush is released
+            self._frame_file.close()
+            self._frame_file = LZ4FrameFile(
+                self.dump_file_path, mode="ab", auto_flush=True
+            )
+            # endregion
+
+            # self._frame_file.flush()  todo re-add
             self._requires_flush = False
 
     def iter_dumps(self) -> DumpGenerator:

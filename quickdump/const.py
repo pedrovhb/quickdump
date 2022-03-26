@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Union, Optional
+from typing import Optional, Union
 
 from starlette.middleware.cors import ALL_METHODS as STARLETTE_METHODS
 
