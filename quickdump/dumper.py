@@ -150,6 +150,11 @@ class QuickDumper:
 
 if __name__ == "__main__":
 
+    # todo -
+    #  from quickdump import qd
+    #  ...
+    #  qd(obj, obj2, label="label")
+
     qd = QuickDumper("some_label")
     qd2 = QuickDumper("some_other_label")
 
