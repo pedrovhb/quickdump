@@ -1,15 +1,18 @@
 import atexit
 import time
-from functools import cached_property
-from itertools import chain
+from functools import cached_property, partial
 from pathlib import Path
 from typing import Any, Dict, Generator, Optional, Type, TypeAlias, Union
 
-import cloudpickle
+import dill
 import structlog.stdlib
 from lz4.frame import LZ4FrameFile
 
-from quickdump.const import DUMP_FILE_EXTENSION, _default_dump_dir, _default_label
+from quickdump.const import (
+    DUMP_FILE_EXTENSION,
+    _default_dump_dir,
+    _default_label,
+)
 from quickdump.utils import slugify
 
 DumpGenerator: TypeAlias = Generator[Any, None, None]
@@ -17,9 +20,12 @@ DumpGenerator: TypeAlias = Generator[Any, None, None]
 
 def _yield_objs(file: Path) -> DumpGenerator:
     with LZ4FrameFile(file, mode="rb") as compressed_fd:
+        unpickler = dill.Unpickler(compressed_fd)
+        patched = partial(unpickler.dispatch.get, default=lambda a, b: str(b))
+        unpickler.dispatch.get = patched
         while True:
             try:
-                yield from cloudpickle.load(compressed_fd)
+                yield from dill.Unpickler(compressed_fd).load()
             except EOFError:
                 break
 
@@ -59,6 +65,7 @@ class QuickDumper:
     output_dir: Path
     _frame_file: LZ4FrameFile
     _requires_flush: bool
+    _pickler: dill.Pickler
 
     _instances: Dict[str, "QuickDumper"] = {}
 
@@ -105,6 +112,16 @@ class QuickDumper:
         self._requires_flush = False
         atexit.register(self.flush)
 
+        self._pickler = dill.Pickler(self._frame_file)
+        self._patch_pickler(self._pickler)
+
+    def default_pickle(self, pickler, obj):
+        return str(obj)
+
+    def _patch_pickler(self, pickler: dill.Pickler) -> None:
+        patched = partial(pickler.dispatch.get, default=self.default_pickle)
+        pickler.dispatch.get = patched
+
     @property
     def logger(self) -> structlog.stdlib.BoundLogger:
         logger = structlog.stdlib.get_logger(label=self.label)
@@ -139,7 +156,7 @@ class QuickDumper:
         yield from iter_dumps(self.label, dump_location=self.dump_file_path)
 
     def dump(self, *objs: Any, force_flush: bool = False) -> None:
-        cloudpickle.dump(objs, self._frame_file)
+        self._pickler.dump(objs)
         self._requires_flush = True
 
         if force_flush:
