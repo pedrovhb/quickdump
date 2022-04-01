@@ -6,6 +6,7 @@ from typing import Any, Dict, Generator, Optional, Type, TypeAlias, Union
 
 import dill
 import structlog.stdlib
+from dill import Pickler
 from lz4.frame import LZ4FrameFile
 
 from quickdump.const import (
@@ -90,10 +91,10 @@ class QuickDumper:
 
     @classmethod
     def initialize(
-        cls,
-        self,
-        label: str,
-        output_dir: Optional[Path] = None,
+            cls,
+            self: "QuickDumper",
+            label: str,
+            output_dir: Optional[Path] = None,
     ) -> None:
 
         self.label = label
@@ -115,8 +116,8 @@ class QuickDumper:
         self._pickler = dill.Pickler(self._frame_file)
         self._patch_pickler(self._pickler)
 
-    def default_pickle(self, pickler, obj):
-        return str(obj)
+    def default_pickle(self, pickler: Pickler, obj: Any) -> str:
+    return str(obj)
 
     def _patch_pickler(self, pickler: dill.Pickler) -> None:
         patched = partial(pickler.dispatch.get, default=self.default_pickle)

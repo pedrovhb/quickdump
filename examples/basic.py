@@ -1,9 +1,7 @@
-import random
-import time
 from dataclasses import dataclass
 from datetime import datetime
 
-from quickdump import QuickDumper, Suffix
+from quickdump import QuickDumper
 
 
 @dataclass
@@ -24,21 +22,14 @@ if __name__ == "__main__":
     dumper = QuickDumper("some_label")
     dumper({"hello!"}, [1, 2, 3])
 
-    other_dumper = QuickDumper("suffixed_label", suffix=Suffix.Day)
-    for i in range(10):
-        time.sleep(0.01)
-        obj = SomeObj(i**2, datetime.now(), random.randbytes(10).hex())
-        print(f"Dumping obj: {obj}")
-        other_dumper(obj)
-
     print("================================")
     print("================================")
     print("== Reading values:")
-    for loaded_obj in dumper.iter_dumped():
-        print(loaded_obj)
+    for loaded_obj in dumper.iter_dumps():
+    print(loaded_obj)
 
-    for loaded_obj in other_dumper.iter_dumped():
-        print(loaded_obj)
+    for loaded_obj in dumper.iter_dumps():
+    print(loaded_obj)
 
     """
     Prints -

@@ -10,7 +10,7 @@ qd = QuickDumper(label="tcp_dump")
 logger = get_logger()
 
 
-async def handle_echo(reader: StreamReader, writer: StreamWriter):
+async def handle_echo(reader: StreamReader, writer: StreamWriter) -> None:
     peer_name = writer.get_extra_info("peername")
     logger.info(f"Got connection from {peer_name}")
     data = await reader.read()
@@ -20,15 +20,15 @@ async def handle_echo(reader: StreamReader, writer: StreamWriter):
     logger.info(f"Dumped {len(data)} bytes from {peer_name}")
 
 
-async def run_server():
+async def run_server() -> None:
     server = await asyncio.start_server(handle_echo, "0.0.0.0", 4411)
-    addresses = ', '.join(str(sock.getsockname()) for sock in server.sockets)
-    logger.info(f'Serving on {addresses}')
+    addresses = ", ".join(str(sock.getsockname()) for sock in server.sockets)
+    logger.info(f"Serving on {addresses}")
     async with server:
         await server.serve_forever()
 
 
-def main():
+def main() -> None:
     asyncio.run(run_server())
 
 

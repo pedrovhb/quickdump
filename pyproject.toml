@@ -26,6 +26,8 @@ black = "^22.1.0"
 isort = "^5.10.1"
 mypy = "^0.942"
 pylint = "^2.12.2"
+autotyping = "^21.12.0"
+poethepoet = "^0.13.1"
 
 [tool.poetry.scripts]
 quickdump_http = "quickdump.server_http:main"  # todo remove hardcoded paths
@@ -38,3 +40,17 @@ quickdump_tcp = "quickdump.server_tcp:main"  # todo remove hardcoded paths
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+
+[tool.poe.tasks.autotype]
+shell = """
+    poetry run python \
+    -m libcst.tool codemod autotyping.AutotypeCommand \
+    --none-return --scalar-return \
+    .
+"""
+help = "Auto-type simple returns."
+
+[tool.poe.tasks.mypy]
+shell = """poetry run mypy --strict ."""
+help = "Run mypy."
