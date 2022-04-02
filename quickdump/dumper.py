@@ -1,12 +1,19 @@
 import atexit
-import time
-from functools import cached_property, partial
+from functools import cached_property
 from pathlib import Path
-from typing import Any, Dict, Generator, Optional, Type, TypeAlias, Union
+from typing import (
+    Any,
+    Dict,
+    Generator,
+    Optional,
+    Type,
+    TypeAlias,
+    Union,
+    Callable,
+)
 
 import dill
-import structlog.stdlib
-from dill import Pickler
+from loguru import logger
 from lz4.frame import LZ4FrameFile
 
 from quickdump.const import (
@@ -20,23 +27,31 @@ DumpGenerator: TypeAlias = Generator[Any, None, None]
 
 
 def _yield_objs(file: Path) -> DumpGenerator:
+    logger.debug(f"Yielding objects from file {file}")
     with LZ4FrameFile(file, mode="rb") as compressed_fd:
         unpickler = dill.Unpickler(compressed_fd)
-        patched = partial(unpickler.dispatch.get, default=lambda a, b: str(b))
-        unpickler.dispatch.get = patched
+        # patched = partial(unpickler.dispatch.get, default=lambda a, b: str(b))
+        # unpickler.dispatch.get = patched
         while True:
             try:
-                yield from dill.Unpickler(compressed_fd).load()
+                yield from unpickler.load()
             except EOFError:
                 break
 
 
 def iter_dumps(
-    *labels: str,
-    dump_location: Optional[Union[Path, str]] = None,
+        *labels: str,
+        dump_location: Optional[Union[Path, str]] = None,
+        filter_fun: Optional[Callable[[Any], bool]] = None,
+        raise_filter_fun_exceptions: bool = False,
 ) -> DumpGenerator:
     selected_labels = labels or [_default_label]
     dump_location = Path(dump_location or _default_dump_dir)
+
+    logger.debug(
+        f"Iterating over dumps for labels"
+        f" {selected_labels} in {dump_location}"
+    )
 
     for label in selected_labels:
         if dump_location.is_file():
@@ -48,7 +63,21 @@ def iter_dumps(
         if QuickDumper.check_requires_flush(label):
             QuickDumper(label).flush()
 
-        yield from _yield_objs(file_path)
+        if filter_fun is None:
+            yield from _yield_objs(file_path)
+        else:
+            for obj in _yield_objs(file_path):
+                try:
+                    if filter_fun(obj):
+                        yield obj
+                except Exception as e:
+                    logger.warning(
+                        f"Exception raised while filtering "
+                        f"dumps for {label} with function"
+                        f" {filter_fun.__qualname__}: {e} (object: {obj})",
+                    )
+                    if raise_filter_fun_exceptions:
+                        raise e
 
 
 def iter_all_dumps(dump_dir: Optional[Path] = None) -> DumpGenerator:
@@ -98,7 +127,7 @@ class QuickDumper:
     ) -> None:
 
         self.label = label
-        self.logger.info(f"Initializing QuickDumper for label {label}")
+        logger.debug(f"Initializing QuickDumper for label {label}")
 
         out_dir = output_dir if output_dir is not None else _default_dump_dir
         self.output_dir = Path(out_dir)
@@ -114,19 +143,14 @@ class QuickDumper:
         atexit.register(self.flush)
 
         self._pickler = dill.Pickler(self._frame_file)
-        self._patch_pickler(self._pickler)
+        # self._patch_pickler(self._pickler)
 
-    def default_pickle(self, pickler: Pickler, obj: Any) -> str:
-    return str(obj)
-
-    def _patch_pickler(self, pickler: dill.Pickler) -> None:
-        patched = partial(pickler.dispatch.get, default=self.default_pickle)
-        pickler.dispatch.get = patched
-
-    @property
-    def logger(self) -> structlog.stdlib.BoundLogger:
-        logger = structlog.stdlib.get_logger(label=self.label)
-        return logger
+    # def default_pickle_fun(self, pickler: Pickler, obj: Any) -> str:
+    #     return str(obj)
+    #
+    # def _patch_pickler(self, pickler: dill.Pickler) -> None:
+    #     patched = partial(pickler.dispatch.get, default=self.default_pickle_fun)
+    #     pickler.dispatch.get = patched
 
     @classmethod
     def check_requires_flush(cls, label: str) -> bool:
@@ -140,68 +164,66 @@ class QuickDumper:
         return self.output_dir / filename
 
     def flush(self) -> None:
-        if self._requires_flush:
+        if not self._requires_flush:
+            return
 
-            # region revert_me
-            # todo - revert once patch to lz4 fixing flush is released
-            self._frame_file.close()
-            self._frame_file = LZ4FrameFile(
-                self.dump_file_path, mode="ab", auto_flush=True
-            )
-            # endregion
+        if not self._frame_file.writable():
+            return
 
-            # self._frame_file.flush()  todo re-add
-            self._requires_flush = False
+        # region revert_me
+        # todo - revert once patch to lz4 fixing flush is released
+        #  https://github.com/python-lz4/python-lz4/pull/245
+        self._frame_file.close()
+        self._frame_file = LZ4FrameFile(
+            self.dump_file_path,
+            mode="ab",
+            auto_flush=True,
+        )
+        self._pickler = dill.Pickler(self._frame_file)
+        # endregion
 
-    def iter_dumps(self) -> DumpGenerator:
-        yield from iter_dumps(self.label, dump_location=self.dump_file_path)
+        # self._frame_file.flush()  todo re-add after reverting above
+        self._requires_flush = False
 
-    def dump(self, *objs: Any, force_flush: bool = False) -> None:
+    def iter_dumps(
+            self,
+            *labels: str,
+            filter_fun: Optional[Callable[[Any], bool]] = None,
+            dump_location: Optional[Path] = None,
+            reraise_filter_fun_exceptions: bool = False,
+    ) -> DumpGenerator:
+
+        if not labels:
+            labels = (self.label,)
+
+        if dump_location is None:
+            dump_location = self.dump_file_path.parent
+
+        yield from iter_dumps(
+            *labels,
+            dump_location=dump_location,
+            filter_fun=filter_fun,
+            raise_filter_fun_exceptions=reraise_filter_fun_exceptions,
+        )
+
+    def dump(
+            self,
+            *objs: Any,
+            label: Optional[str] = None,
+            force_flush: bool = False,
+    ) -> None:
+
+        if label is not None:
+            return QuickDumper(
+                label=label,
+                output_dir=self.output_dir,
+            ).dump(*objs, force_flush=force_flush)
+
         self._pickler.dump(objs)
         self._requires_flush = True
 
-        if force_flush:
-            self.flush()
+        self.flush()
+        # if force_flush:
+        #     self.flush()
 
     __call__ = dump
-
-
-if __name__ == "__main__":
-
-    # todo -
-    #  from quickdump import qd
-    #  ...
-    #  qd(obj, obj2, label="label")
-
-    qd = QuickDumper("some_label")
-    qd2 = QuickDumper("some_other_label")
-
-    qd3 = QuickDumper("some_label")
-
-    test_size = 10
-
-    t0 = time.perf_counter()
-    qd(*[("one", "two", i) for i in range(test_size)])
-    t_one_dump = time.perf_counter() - t0
-
-    t0 = time.perf_counter()
-    for i in range(test_size):
-        qd2(("one", "two", i * 2))
-    t_multiple_dumps = time.perf_counter() - t0
-
-    print("===================")
-    print(f"Some label objs:")
-    for dumped_obj in qd.iter_dumps():
-        print(dumped_obj)
-
-    print("===================")
-    print(f"Some other label objs:")
-    for dumped_obj in qd2.iter_dumps():
-        print(dumped_obj)
-
-    print(
-        f"""
-              t_one_dump: {t_one_dump}
-        t_multiple_dumps: {t_multiple_dumps}
-        """
-    )

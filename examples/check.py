@@ -1,8 +1,15 @@
-import quickdump
+from quickdump import qd
 
-qd = quickdump.QuickDumper("mitm_test")
+a = "hello"
+qd(a, label="test1")
+qd("pedro", label="test1")
 
-for obj in qd.iter_dumps():
-    if not isinstance(obj, tuple):
-        print(obj)
-print("hi!")
+
+def filter_even_len(obj):
+    if obj % 2 != 0:
+        return False
+    return True
+
+
+for obj in qd.iter_dumps("mylabel"):
+    print(obj)

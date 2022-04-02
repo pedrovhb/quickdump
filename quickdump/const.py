@@ -9,7 +9,7 @@ DUMP_FILE_EXTENSION = ".qd"
 ALL_METHODS = list(STARLETTE_METHODS)
 
 _default_dump_dir: Path = Path.home() / ".quickdump"
-_default_label = "unlabeled_dump"
+_default_label = "default_dump"
 
 
 def configure(

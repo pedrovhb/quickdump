@@ -1,7 +1,7 @@
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 import uvicorn
 from multidict import CIMultiDict
@@ -19,6 +19,7 @@ from quickdump.const import _default_label
 class RequestDump:
     headers: CIMultiDict[str]
     url: str
+    path_data: Optional[str]
     body: bytes
     dumped_at: datetime = field(default_factory=datetime.now)
 
@@ -31,14 +32,21 @@ class DumpApp(HTTPEndpoint):
     async def dispatch(self) -> None:
         request = Request(self.scope, receive=self.receive)
 
-        label = request.path_params.get("full_path") or _default_label
+        label = request.path_params.get("label") or _default_label
+        path_data = request.path_params.get("data")
+
         dumper = QuickDumper(label)
 
         body = await request.body()
         headers = CIMultiDict(request.headers)
         url = request.url
 
-        req_dump = RequestDump(headers=headers, url=str(url), body=body)
+        req_dump = RequestDump(
+            headers=headers,
+            url=str(url),
+            body=body,
+            path_data=path_data,
+        )
         dumper.dump(req_dump, force_flush=True)
 
         response = Response(status_code=201)
@@ -48,8 +56,10 @@ class DumpApp(HTTPEndpoint):
 app = Starlette(
     debug=True,
     routes=[
-        Route("/{full_path:path}", DumpApp),
-    ],
+    Route("/{label:str}/{data:path}", DumpApp),
+    Route("/{label:str}", DumpApp),
+    Route("/", DumpApp),
+],
 )
 
 
