@@ -56,10 +56,10 @@ class DumpApp(HTTPEndpoint):
 app = Starlette(
     debug=True,
     routes=[
-    Route("/{label:str}/{data:path}", DumpApp),
-    Route("/{label:str}", DumpApp),
-    Route("/", DumpApp),
-],
+        Route("/{label:str}/{data:path}", DumpApp),
+        Route("/{label:str}", DumpApp),
+        Route("/", DumpApp),
+    ],
 )
 
 
